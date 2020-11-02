@@ -36,8 +36,9 @@
                                     (list (strcat path fn)) nil))
                              all)))
   (foreach dxf files
-    ;(print dxf)
-    (if (wcmatch dxf "*/SALLE_DES_MACHINES_2007.dxf")
+    (if (or (wcmatch dxf "*/SALLE_DES_MACHINES_2007.dxf")
+            (wcmatch dxf "*/Leader_2000.dxf")
+            (wcmatch dxf "*/Leader_2004.dxf"))
         (print "skipped")
       (progn
         (command "._DXFIN" dxf)
