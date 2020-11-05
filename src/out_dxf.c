@@ -3062,14 +3062,16 @@ dxf_ENDBLK_empty (Bit_Chain *restrict dat, const Dwg_Object *restrict hdr)
 // a BLOCK_HEADER
 static int
 dxf_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict hdr,
-                 const Dwg_Object *restrict mspace, int *restrict i)
+                 const Dwg_Object *restrict mspace, const Dwg_Object *restrict pspace,
+                 int *restrict i)
 {
   int error = 0;
   const Dwg_Object_BLOCK_HEADER *restrict _hdr
       = hdr->tio.object->tio.BLOCK_HEADER;
   Dwg_Object *restrict obj = get_first_owned_block (hdr); // BLOCK
   Dwg_Object *restrict endblk = NULL;
-  unsigned long int mspace_ref = mspace->handle.value;
+  unsigned long int mspace_ref = mspace ? mspace->handle.value : 0;
+  unsigned long int pspace_ref = pspace ? pspace->handle.value : 0;
 
   if (obj)
     error |= dwg_dxf_object (dat, obj, i);
@@ -3091,10 +3093,12 @@ dxf_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict hdr,
       else
         LOG_WARN ("BLOCK_HEADER %s block_entity[0] missing", _hdr->name);
     }
-  // Skip all *Model_Space entities, esp. new ones: UNDERLAY, MULTILEADER, ...
-  // They are all under ENTITIES later. But WIPEOUT is here...
-  // Note: the objects may vary (e.g. example_2000), but the index not
+  // Skip all *Model_Space and *Paper_Space entities, esp. new ones: UNDERLAY, MULTILEADER, ...
+  // They are all under ENTITIES later. But WIPEOUT and VIEWPORT is here.
+  // Note: the objects may vary (e.g. example_2000), but the index not.
   if ((hdr == mspace) || (hdr->index == mspace->index))
+    obj = NULL;
+  else if ((hdr == pspace) || (pspace && hdr->index == pspace->index))
     obj = NULL;
   else
     obj = get_first_owned_entity (hdr); // first_entity or entities[0]
@@ -3104,7 +3108,8 @@ dxf_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict hdr,
           && obj->fixedtype != DWG_TYPE_ENDBLK
           && (obj->tio.entity->entmode != 2 ||
               (obj->tio.entity->ownerhandle != NULL
-               && obj->tio.entity->ownerhandle->absolute_ref != mspace_ref)))
+               && obj->tio.entity->ownerhandle->absolute_ref != mspace_ref
+               && obj->tio.entity->ownerhandle->absolute_ref != pspace_ref)))
         error |= dwg_dxf_object (dat, obj, i);
       obj = get_next_owned_block_entity (hdr, obj); // until last_entity
     }
@@ -3129,7 +3134,8 @@ dxf_blocks_write (Bit_Chain *restrict dat, Dwg_Data *restrict dwg)
 {
   int error = 0;
   int i;
-  Dwg_Object *mspace = dwg_model_space_object (dwg);
+  Dwg_Object *restrict mspace = dwg_model_space_object (dwg);
+  Dwg_Object *restrict pspace = dwg_paper_space_object (dwg);
 
   if (!mspace)
     return DWG_ERR_UNHANDLEDCLASS;
@@ -3146,15 +3152,17 @@ dxf_blocks_write (Bit_Chain *restrict dat, Dwg_Data *restrict dwg)
   SECTION (BLOCKS);
   /* There may be unconnected pspace blocks (not caught by above),
      such as pspace referred by a LAYOUT or DIMENSION, so for simplicity just
-     scan all BLOCK_HEADER's and just skip *Model_Space. #81 BLOCK_HEADER -
+     scan all BLOCK_HEADER's and just skip *Model_Space and *Paper_Space. pspace might be NULL.
+     #81 BLOCK_HEADER -
      LAYOUT - BLOCK - ENDBLK
    */
   for (i = 0; (BITCODE_BL)i < dwg->num_objects; i++)
     {
-      if (dwg->object[i].supertype == DWG_SUPERTYPE_OBJECT
-          && dwg->object[i].type == DWG_TYPE_BLOCK_HEADER)
+      const Dwg_Object *restrict obj = &dwg->object[i];
+      if (obj->supertype == DWG_SUPERTYPE_OBJECT
+          && obj->type == DWG_TYPE_BLOCK_HEADER)
         {
-          error |= dxf_block_write (dat, &dwg->object[i], mspace /* to be skipped*/, &i);
+          error |= dxf_block_write (dat, obj, mspace, pspace, &i);
         }
   }
 

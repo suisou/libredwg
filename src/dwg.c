@@ -958,6 +958,26 @@ dwg_model_space_object (Dwg_Data *dwg)
   return dwg_resolve_handle (dwg, dwg->header.version >= R_2000 ? 0x1F : 0x17);
 }
 
+/** Returns the paper space block object for the DWG.
+ */
+EXPORT Dwg_Object *
+dwg_paper_space_object (Dwg_Data *dwg)
+{
+  Dwg_Object_Ref *psref = dwg_paper_space_ref (dwg);
+  Dwg_Object_BLOCK_CONTROL *ctrl;
+
+  if (psref && psref->obj && psref->obj->type == DWG_TYPE_BLOCK_HEADER)
+    return psref->obj;
+  ctrl = dwg_block_control (dwg);
+  if (ctrl && ctrl->paper_space && ctrl->paper_space->obj)
+    return ctrl->paper_space->obj;
+  if (dwg->header_vars.BLOCK_RECORD_PSPACE
+      && dwg->header_vars.BLOCK_RECORD_PSPACE->obj)
+    return dwg->header_vars.BLOCK_RECORD_PSPACE->obj;
+  else
+    return NULL;
+}
+
 /** Returns the first entity owned by the block hdr, or NULL.
  */
 EXPORT Dwg_Object *

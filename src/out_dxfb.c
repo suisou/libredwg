@@ -50,11 +50,9 @@ static int dwg_dxfb_object (Bit_Chain *restrict dat,
 static int dxfb_3dsolid (Bit_Chain *restrict dat,
                          const Dwg_Object *restrict obj,
                          Dwg_Entity_3DSOLID *restrict _obj);
-static int dxfb_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict mspace,
-                             Dwg_Object *restrict hdr, int *restrict i);
-static void dxfb_cvt_tablerecord (Bit_Chain *restrict dat,
+/*static void dxfb_cvt_tablerecord (Bit_Chain *restrict dat,
                                   const Dwg_Object *restrict obj,
-                                  char *restrict name, const int dxf);
+                                  char *restrict name, const int dxf); */
 
 /*--------------------------------------------------------------------------------
  * MACROS
@@ -2087,8 +2085,9 @@ dxfb_ENDBLK_empty (Bit_Chain *restrict dat, const Dwg_Object *restrict hdr)
 }
 
 static int
-dxfb_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict mspace,
-                  Dwg_Object *restrict hdr, int *restrict i)
+dxfb_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict hdr,
+                  const Dwg_Object *restrict mspace, const Dwg_Object *restrict pspace,
+                  int *restrict i)
 {
   int error = 0;
   Dwg_Object *restrict obj = get_first_owned_block (hdr); // BLOCK
@@ -2096,7 +2095,8 @@ dxfb_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict mspace,
       = hdr->tio.object->tio.BLOCK_HEADER;
   Dwg_Object *restrict endblk;
   Dwg_Data *dwg = hdr->parent;
-  unsigned long int mspace_ref = mspace->handle.value;
+  unsigned long int mspace_ref = mspace ? mspace->handle.value : 0;
+  unsigned long int pspace_ref = pspace ? pspace->handle.value : 0;
 
   if (obj)
     error |= dwg_dxfb_object (dat, obj, i);
@@ -2105,18 +2105,23 @@ dxfb_block_write (Bit_Chain *restrict dat, const Dwg_Object *restrict mspace,
       LOG_ERROR ("BLOCK_HEADER.block_entity missing");
       return DWG_ERR_INVALIDDWG;
     }
-  // Skip all *Model_Space entities, esp. new ones: UNDERLAY, MULTILEADER, ...
+  // Skip all *Model_Space and *Paper_Space entities, esp. new ones: UNDERLAY, MULTILEADER, ...
   // They are all under ENTITIES later.
   // Note: the objects may vary (e.g. example_2000), but the index not
   if ((hdr == mspace) || (hdr->index == mspace->index))
+    obj = NULL;
+  else if ((hdr == pspace) || (pspace && hdr->index == pspace->index))
     obj = NULL;
   else
     obj = get_first_owned_entity (hdr); // first_entity
   while (obj)
     {
       if (obj->supertype == DWG_SUPERTYPE_ENTITY
-          && obj->tio.entity->ownerhandle != NULL
-          && obj->tio.entity->ownerhandle->absolute_ref != mspace_ref)
+          && obj->fixedtype != DWG_TYPE_ENDBLK
+          && (obj->tio.entity->entmode != 2 ||
+              (obj->tio.entity->ownerhandle != NULL
+               && obj->tio.entity->ownerhandle->absolute_ref != mspace_ref
+               && obj->tio.entity->ownerhandle->absolute_ref != pspace_ref)))
         error |= dwg_dxfb_object (dat, obj, i);
       obj = get_next_owned_entity (hdr, obj); // until last_entity
     }
@@ -2137,7 +2142,8 @@ dxfb_blocks_write (Bit_Chain *restrict dat, Dwg_Data *restrict dwg)
 {
   int error = 0;
   int i = 0;
-  Dwg_Object *mspace = dwg_model_space_object (dwg);
+  Dwg_Object *restrict mspace = dwg_model_space_object (dwg);
+  Dwg_Object *restrict pspace = dwg_paper_space_object (dwg);
 
   if (!mspace)
     return DWG_ERR_UNHANDLEDCLASS;
@@ -2145,15 +2151,16 @@ dxfb_blocks_write (Bit_Chain *restrict dat, Dwg_Data *restrict dwg)
   SECTION (BLOCKS);
   /* There may be unconnected blocks (not caught by above),
      such as pspace referred by a LAYOUT or DIMENSION, so for simplicity just
-     scan all BLOCK_HEADER's. #81 BLOCK_HEADER - LAYOUT - BLOCK - ENDBLK
+     scan all BLOCK_HEADER's and just skip *Model_Space and *Paper_Space. pspace might be NULL.
    */
   {
     for (i = 0; (BITCODE_BL)i < dwg->num_objects; i++)
       {
-        if (dwg->object[i].supertype == DWG_SUPERTYPE_OBJECT
-            && dwg->object[i].type == DWG_TYPE_BLOCK_HEADER)
+        const Dwg_Object *restrict obj = &dwg->object[i];
+        if (obj->supertype == DWG_SUPERTYPE_OBJECT
+            && obj->type == DWG_TYPE_BLOCK_HEADER)
           {
-            error |= dxfb_block_write (dat, mspace, &dwg->object[i], &i);
+            error |= dxfb_block_write (dat, obj, mspace, pspace, &i);
           }
       }
   }
